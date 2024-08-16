@@ -38,6 +38,7 @@ def generate_arg_combinations(args_list):
 def schedule(gpu_ids, jobs, script, sweep_dir):
     gpu_status = {gpu: None for gpu in gpu_ids}
     job_queue = jobs[:]
+    failed_jobs = []
 
     run_count = 1
     while job_queue or any(gpu_status.values()):
@@ -51,7 +52,7 @@ def schedule(gpu_ids, jobs, script, sweep_dir):
                     cmd += [f"--{k}"]
                     cmd += [str(v)]
 
-                print(f"Starting job {run_count} on GPU {gpu}\n{' '.join(cmd)}")
+                print(f"Starting job {run_count} on GPU {gpu}\n{' '.join(cmd)}\n")
 
                 # Start the job
                 process = subprocess.Popen(
@@ -66,12 +67,34 @@ def schedule(gpu_ids, jobs, script, sweep_dir):
                     json.dump(args, f, indent=4)
 
                 gpu_status[gpu] = process
+                gpu_status[gpu].run_dir = (
+                    run_dir  # Store the run directory in the process object
+                )
+                gpu_status[gpu].args = args  # Store the args in the process object
                 run_count += 1
             elif process is not None and process.poll() is not None:
+                if process.returncode != 0:
+                    print(
+                        f"Job on GPU {gpu} failed with exit code {process.returncode}"
+                    )
+                    print(
+                        f"Check the logs at {gpu_status[gpu].run_dir}/output.log for more details."
+                    )
+                    failed_jobs.append(
+                        {
+                            "gpu": gpu,
+                            "run_dir": gpu_status[gpu].run_dir,
+                            "args": gpu_status[gpu].args,
+                            "exit_code": process.returncode,
+                        }
+                    )
+                else:
+                    print(f"Job on GPU {gpu} finished.")
                 gpu_status[gpu] = None
-                print(f"Finished job on GPU {gpu}")
 
         time.sleep(1)
+
+    return failed_jobs
 
 
 def main():
@@ -98,8 +121,18 @@ def main():
     with open(os.path.join(sweep_dir, "sweep.json"), "w") as meta_file:
         json.dump(sweep_metadata, meta_file, indent=4)
 
-    print(f"Generated {len(job_args)} job combinations.")
-    schedule(gpu_ids, job_args, args.script, sweep_dir)
+    print(f"Generated {len(job_args)} job combinations.\n" + "=" * 50)
+    failed_jobs = schedule(gpu_ids, job_args, args.script, sweep_dir)
+
+    if failed_jobs:
+        print("\n", "=" * 50 + "Summary of Failed Jobs:")
+        for job in failed_jobs:
+            print(
+                f"GPU: {job['gpu']}, Run Directory: {job['run_dir']}, Exit Code: {job['exit_code']}"
+            )
+            print(f"Arguments: {json.dumps(job['args'], indent=4)}")
+    else:
+        print("All jobs completed successfully.")
 
 
 if __name__ == "__main__":
