@@ -1,6 +1,7 @@
 import argparse
 import time
 
+from loguru import logger
 import torch
 
 
@@ -13,9 +14,12 @@ def main():
         raise ValueError("Learning rate must be positive")
 
     print(f"Training with learning rate {args.lr} and {args.n_layers} layers")
+    logger.add("log_{time}.log")
+    logger.info(f"Training with learning rate {args.lr} and {args.n_layers} layers")
     x = torch.rand(10000, 100000).cuda()
     time.sleep(args.n_layers * 2)
     print("Done!")
+    logger.info("Done!")
 
 
 if __name__ == "__main__":
