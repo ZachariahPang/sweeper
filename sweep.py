@@ -5,9 +5,16 @@ import os
 import subprocess
 import time
 from datetime import datetime
+from typing import Dict, List, Optional
 
 
 def parse_args():
+    """
+    Parses command-line arguments for the Deep Learning Job Launcher.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="Deep Learning Job Launcher")
     parser.add_argument("script", type=str, help="Target Python script to execute")
     parser.add_argument(
@@ -28,8 +35,23 @@ def parse_args():
     return parser.parse_args()
 
 
-def generate_cmd_combinations(script, args_list):
-    arg_dict = {}
+def generate_cmd_combinations(script: str, args_list: List[str]) -> List[List[str]]:
+    """
+    Generates a list of command-line argument combinations for the specified script.
+
+    Args:
+        script (str): The script to be executed.
+        args_list (List[str]): A list of argument strings in the form 'arg1=1,2 arg2=3'.
+        For boolean arguments, use "true" or "false" as values.
+        - Boolean values (i.e., "true" or "false") are handled specially:
+          - If the value is "true", the argument is added as a flag (e.g., "--arg").
+          - If the value is "false", the argument is added as a negated flag (e.g., "--no-arg").
+
+    Returns:
+        List[List[str]]: A list of command-line commands with all argument combinations.
+
+    """
+    arg_dict: Dict[str, List[str]] = {}
     for arg in args_list:
         key, values = arg.split("=")
         arg_dict[key] = values.split(",")
@@ -37,7 +59,7 @@ def generate_cmd_combinations(script, args_list):
     keys = arg_dict.keys()
     combinations = list(itertools.product(*arg_dict.values()))
 
-    cmd_list = []
+    cmd_list: List[List[str]] = []
     for combination in combinations:
         cmd = ["python", script]
         for key, value in zip(keys, combination):
@@ -52,10 +74,23 @@ def generate_cmd_combinations(script, args_list):
     return cmd_list
 
 
-def schedule(gpu_ids, jobs, sweep_dir):
-    gpu_status = {gpu: None for gpu in gpu_ids}
+def schedule(
+    gpu_ids: List[str], jobs: List[List[str]], sweep_dir: str
+) -> List[Dict[str, Optional[int]]]:
+    """
+    Schedules and executes a list of jobs on available GPUs.
+
+    Args:
+        gpu_ids (List[str]): List of available GPU IDs.
+        jobs (List[List[str]]): List of command-line commands to execute.
+        sweep_dir (str): Directory to store logs and metadata.
+
+    Returns:
+        List[Dict[str, Optional[int]]]: List of failed jobs with details.
+    """
+    gpu_status: Dict[str, Optional[subprocess.Popen]] = {gpu: None for gpu in gpu_ids}
     job_queue = jobs[:]
-    failed_jobs = []
+    failed_jobs: List[Dict[str, Optional[int]]] = []
 
     run_count = 1
     while job_queue or any(gpu_status.values()):
@@ -105,7 +140,11 @@ def schedule(gpu_ids, jobs, sweep_dir):
     return failed_jobs
 
 
-def main():
+def main() -> None:
+    """
+    Main function to parse arguments, generate job combinations,
+    and schedule the jobs for execution.
+    """
     args = parse_args()
     gpu_ids = (
         args.gpus.split(",") if args.gpus else ["0"]
@@ -117,6 +156,7 @@ def main():
     for i, cmd in enumerate(job_cmds):
         print(f"{i+1}: " + " ".join(cmd))
     print("=" * 50 + "\n")
+
     if not args.dry_run:
         # Create the output directory with a timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -139,7 +179,7 @@ def main():
         failed_jobs = schedule(gpu_ids, job_cmds, sweep_dir)
 
         if failed_jobs:
-            print("\n", "=" * 50 + "Summary of Failed Jobs:")
+            print("\n", "=" * 50 + " Summary of Failed Jobs:")
             for job in failed_jobs:
                 print(
                     f"GPU: {job['gpu']}, Run Directory: {job['run_dir']}, Exit Code: {job['exit_code']}"
